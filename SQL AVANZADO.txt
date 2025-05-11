@@ -1,0 +1,242 @@
+--------SQL AVANZADO---------
+
+-- 1. Agregar una columna llamada “Ranking” con el ranking de ventas en función del monto (Sales.SalesOrderHeader.TotalDue)
+SELECT 
+	TotalDue ,
+    SalesOrderID,
+	RANK () OVER(
+        ORDER BY TotalDue DESC
+    )
+FROM Sales.SalesOrderHeader soh;
+
+-- 2. Agregar una columna llamada “Ranking” por territorio con el ranking de ventas en función del monto por cada territorio. Mostrar el nombre del Territorio, SalesOrderID, OrderDate, TotalDue y Ranking
+SELECT 
+	st.Name as nombre_territorio,
+	soh.SalesOrderID ,
+	soh.OrderDate ,
+	soh.TotalDue ,
+	RANK() OVER(
+        PARTITION BY st.Name 
+        ORDER BY soh.TotalDue DESC
+    ) AS Ranking
+from Sales.SalesOrderHeader st 
+left join Sales.SalesTerritory soh 
+    on st.TerritoryID =soh.TerritoryID
+
+-- 3. Agregar una columna en la tabla SalesPerson que muestre la contribución de esa persona a las ventas del año (SalesYTD / total de SalesYTD). Llamar a esta columna ContribucionVentas (notar que la suma de todas las filas de esta columna debe dar 1)
+SELECT 
+	p.FirstName ,
+	p.LastName ,
+	sp.SalesYTD, 
+	sp.SalesYTD /SUM(sp.SalesYTD) OVER() as ContribucionVentas
+FROM Sales.SalesPerson sp
+left join Person.Person p 
+on sp.BusinessEntityID =p.BusinessEntityID 
+
+-- 4. En la tabla CurrencyRate, buscar los registros que reflejen el tipo de cambio Dólar a Euro y calcular cual fue la máxima fluctuación de un día a otro (considerar el AverageRate).
+SELECT TOP 1
+	CurrencyRateDate ,
+	AverageRate ,
+	EndOfDayRate ,
+	ABS(AverageRate - LAG (AverageRate) over (order by CurrencyRateDate)) as Fructuacion_diferencia_ayer
+from Sales.CurrencyRate cr 
+where FromCurrencyCode = 'USD' and ToCurrencyCode = 'EUR'
+ORDER by Fructuacion_diferencia_ayer DESC 
+
+
+-- 5. De los dos vendedores (SalesPersonID en tabla SalesOrderHeader) que hayan tenido mayor cantidad de ventas en el año (SalesYTD de tabla SalesPerson), mostrar sus 5-- Seleccionamos las 5 ventas más altas de cada uno de esos dos vendedores
+with VendedoresOrdenados as(
+	SELECT 
+		p.FirstName as Nombre,
+		p.LastName as Apellido,
+		e.JobTitle ,
+		soh.OrderDate ,
+		soh.TotalDue, 
+		sp.SalesYTD,
+		RANK () OVER(ORDER BY sp.SalesYTD) as Lista_vendedores
+	FROM Sales.SalesOrderHeader soh 
+	left join Sales.SalesPerson sp 
+	on soh.TerritoryID = sp.TerritoryID 
+	LEFT join Person.Person p 
+	on sp.BusinessEntityID = p.BusinessEntityID 
+	LEFT JOIN HumanResources.Employee e 
+	on p.BusinessEntityID = e.BusinessEntityID 
+)
+SELECT 
+	Nombre,
+	Apellido,
+	JobTitle,
+	OrderDate,
+	TotalDue
+from VendedoresOrdenados
+where Lista_vendedores <=2
+order by TotalDue desc
+
+
+-- 5. De los dos vendedores (SalesPersonID en tabla SalesOrderHeader) que hayan tenido
+-- mayor cantidad de ventas en el año (SalesYTD de tabla SalesPerson), mostrar sus 5
+-- ventas más altas (TotalDue de tabla SalesOrderHeader). La tabla debe tener Nombre
+-- y apellido del vendedor (tabla Person), JobTitle (tabla Employee), OrderDate y
+-- TotalDue.
+-- NOTA: SalesPersonID en la tabla de SalesOrderHeader, es equivalente a
+-- BusinessEntityID de la tabla Person (se pueden joinear por esa columna)
+
+-- Paso 1: Encontrar 2 vendedores con más ventas según SalesYTD
+-- Paso 2: Buscar 5 ventas más altas de cada vendedor (de todos)
+-- Paso 3: Filtrar el Paso 2 con los vendedores del Paso 1
+-- Paso 4: Agregar todas las columnas que me pide
+
+-- Paso 1: Encontrar 2 vendedores con más ventas según SalesYTD
+-- V1
+SELECT TOP 2 BusinessEntityID 
+FROM Sales.SalesPerson sp 
+ORDER BY SalesYTD DESC
+
+-- V2
+SELECT TOP 2 SalesPersonID , SUM(TotalDue) AS Total
+FROM Sales.SalesOrderHeader soh 
+WHERE SalesPersonID IS NOT NULL
+GROUP BY SalesPersonID 
+ORDER BY SUM(TotalDue) DESC
+
+-- Paso 2: Buscar 5 ventas más altas de cada vendedor (de todos)
+SELECT *
+FROM(
+	SELECT 
+		SalesPersonID ,
+		TotalDue ,
+		ROW_NUMBER() OVER(
+			PARTITION BY SalesPersonID 
+			ORDER BY TotalDue DESC
+		) AS Ranking
+	FROM Sales.SalesOrderHeader soh 
+) AS Tabla
+WHERE Ranking <= 5
+
+
+-- Paso 3: Filtrar el Paso 2 con los vendedores del Paso 1
+SELECT *
+FROM(
+	SELECT 
+		SalesPersonID ,
+		TotalDue ,
+		ROW_NUMBER() OVER(
+			PARTITION BY SalesPersonID 
+			ORDER BY TotalDue DESC
+		) AS Ranking
+	FROM Sales.SalesOrderHeader soh 
+	WHERE SalesPersonID IN (
+		SELECT TOP 2 SalesPersonID
+		FROM Sales.SalesOrderHeader soh 
+		WHERE SalesPersonID IS NOT NULL
+		GROUP BY SalesPersonID 
+		ORDER BY SUM(TotalDue) DESC
+	)
+) AS Tabla
+WHERE Ranking <= 5 
+
+-- Paso 4: Agregar todas las columnas que me pide
+
+SELECT 
+	FirstName,
+	LastName,
+	JobTitle,
+	OrderDate,
+	TotalDue 
+FROM(
+	SELECT 
+		SalesPersonID ,
+		TotalDue ,
+		OrderDate,
+		ROW_NUMBER() OVER(
+			PARTITION BY SalesPersonID 
+			ORDER BY TotalDue DESC
+		) AS Ranking
+	FROM Sales.SalesOrderHeader soh 
+	WHERE SalesPersonID IN (
+		SELECT TOP 2 SalesPersonID
+		FROM Sales.SalesOrderHeader soh 
+		WHERE SalesPersonID IS NOT NULL
+		GROUP BY SalesPersonID 
+		ORDER BY SUM(TotalDue) DESC
+	)
+) AS Tabla
+LEFT JOIN Person.Person p 
+ON Tabla.SalesPersonID = p.BusinessEntityID 
+LEFT JOIN HumanResources.Employee e 
+ON p.BusinessEntityID = e.BusinessEntityID 
+WHERE Ranking <= 5 
+
+
+-- 6. En la tabla Production.WorkOrder buscar el día (DueDate) que más piezas se hayan pedido (OrderQty) de las piezas que tengan un precio de lista mayor a 3000 (Product.ListPrice). Mostrar ProductID, DueDate, OrderQty y ListPrice de todos los pedidos de ese día
+with VentasPorDia AS (
+	SELECT 
+		wo.ProductID ,
+		wo.DueDate ,
+		wo.OrderQty ,
+		p.ListPrice ,
+		SUM (wo.OrderQty) OVER(PARTITION by wo.DueDate ) as Total_Ventas_Por_Dia
+	FROM Production.WorkOrder wo 
+	left join Production.Product p
+	on wo.ProductID = p.ProductID
+	WHERE p.ListPrice > 3000
+)
+SELECT *
+from VentasPorDia
+where Total_Ventas_Por_Dia = (
+	SELECT 	
+		MAX(Total_Ventas_Por_Dia)
+	from VentasPorDia
+	)
+order by DueDate desc
+
+-- 7. Buscar cuales fueron los dos compradores que mayores compras realizaron por cada territorio (ver tabla Sales.SalesOrderHeader). Indicar nombre del territorio, id del cliente y cantidad de compras
+WITH ComprasPorTerritorio AS (
+    SELECT 
+        st.Name AS nombre_territorio,
+        soh.CustomerID,
+        SUM(sod.OrderQty) AS cantidad_comprada,
+        RANK() OVER (
+        	PARTITION BY st.TerritoryID 
+        	ORDER BY SUM(sod.OrderQty) DESC
+        ) AS ranking
+    FROM Sales.SalesOrderDetail sod
+    LEFT JOIN Sales.SalesOrderHeader soh 
+    	ON sod.SalesOrderID = soh.SalesOrderID
+    LEFT JOIN Sales.SalesTerritory st 
+    	ON soh.TerritoryID = st.TerritoryID
+    GROUP BY st.Name, st.TerritoryID, soh.CustomerID
+)
+SELECT 
+	nombre_territorio, 
+	CustomerID, 
+	cantidad_comprada
+FROM ComprasPorTerritorio
+WHERE ranking <= 2
+ORDER BY nombre_territorio, ranking;
+
+
+-- 8. Mostar una tabla que tenga en las filas los territorios y en las columnas las categorías. La misma debe contener la cantidad de unidades vendidas por cada categoría y territorio respectivamente.
+SELECT * 
+FROM (
+    SELECT 
+        st.Name AS nombre_territorio,
+        pc.Name AS categoria,
+        SUM(sod.OrderQty) AS cantidad_vendida
+    FROM Sales.SalesOrderDetail sod
+    JOIN Sales.SalesOrderHeader soh 
+    	ON sod.SalesOrderID = soh.SalesOrderID
+    JOIN Sales.SalesTerritory st 
+    	ON soh.TerritoryID = st.TerritoryID
+    JOIN Production.Product p 
+    	ON sod.ProductID = p.ProductID
+    JOIN Production.ProductSubcategory ps 
+    	ON p.ProductSubcategoryID = ps.ProductSubcategoryID
+    JOIN Production.ProductCategory pc 
+    	ON ps.ProductCategoryID = pc.ProductCategoryID
+    GROUP BY st.Name, pc.Name
+) AS Ventas
+PIVOT (
+    SUM(cantidad_vendida) 
+    FOR categoria IN ([Bikes], [Components], [Clothing], [Accessories])
+) AS TablaPivoteada;
