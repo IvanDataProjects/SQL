@@ -67,5 +67,5 @@ Se desarrollan varias consultas avanzadas para extraer información clave de la 
 ## 🚀 Autor
 
 Iván García Raso  
-GitHub - [IvanMLProjects](https://github.com/IvanMLProjects)  
+GitHub - [IvanDataProjects](https://github.com/IvanDataProjects)  
 LinkedIn - [Iván García Raso](https://www.linkedin.com/in/ivan-garcia-raso)
